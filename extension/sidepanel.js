@@ -1,4 +1,5 @@
-const API_URL = 'http://localhost:8000';
+// const API_URL = 'http://localhost:8000';
+const API_URL = 'https://connector-backend-neo-6190.azurewebsites.net';
 
 const ui = {
     overlay: document.getElementById('login-overlay'),
@@ -36,7 +37,7 @@ async function checkBackend() {
         ui.backendDot.className = 'status-indicator status-red';
         ui.btnLogin.disabled = true;
         if (!isAuthenticated)
-            ui.loginStatus.textContent = "Cannot reach localhost:8000. Is the backend running?";
+            ui.loginStatus.textContent = "Connecting to Backend...";
         // console.error("Backend unavailable", e);
     }
 }
