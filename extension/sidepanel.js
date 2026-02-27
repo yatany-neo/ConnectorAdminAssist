@@ -1,5 +1,5 @@
 // const API_URL = 'http://localhost:8000';
-const API_URL = 'https://connector-backend-neo-6190.azurewebsites.net';
+const API_URL = 'https://connector-backend-neo-6605.azurewebsites.net';
 
 const ui = {
     overlay: document.getElementById('login-overlay'),
