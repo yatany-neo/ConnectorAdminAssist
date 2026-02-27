@@ -114,6 +114,27 @@ function getPageContentSnippet() {
     // excessive cleaning to reduce tokens
     const clone = main.cloneNode(true);
     
+    // CAPTURE PORTALS: Append content from ms-Layer/ms-Callout (Fluent UI dropdowns)
+    // Expanded selectors to catch more variations of floating content (ComboBox, ContextMenu, etc.)
+    const portalSelectors = [
+        '.ms-Layer', 
+        '.ms-Callout', 
+        'div[role="listbox"]', 
+        'div[role="menu"]',
+        '.ms-ComboBox-optionsContainer',
+        '.ms-ContextualMenu-container'
+    ];
+    
+    document.querySelectorAll(portalSelectors.join(', ')).forEach(layer => {
+        // Simple visibility check: must have layout size
+        if (layer.offsetWidth > 0 && layer.offsetHeight > 0 && layer.innerText && layer.innerText.trim().length > 0) {
+            const layerClone = layer.cloneNode(true);
+            // Mark it so the AI knows this is a floating layer
+            layerClone.setAttribute("data-source", "floating-layer");
+            clone.appendChild(layerClone);
+        }
+    });
+    
     // Remove scripts, styles, svgs, hidden elements
     const toRemove = clone.querySelectorAll('script, style, svg, [hidden], noscript');
     toRemove.forEach(el => el.remove());
@@ -202,8 +223,12 @@ document.addEventListener('focusin', (e) => {
 
              // Filtering: Ignore generic Search boxes and specific excluded fields
              const lowerLabel = labelText ? labelText.toLowerCase() : "";
-             // Broader filter: "search" OR ("jira" AND "url")
-             if (lowerLabel === 'search' || (lowerLabel.includes('jira') && lowerLabel.includes('url'))) {
+             
+             // Broader filter: "search" OR ("jira" AND "url") OR "data sources search box"
+             // Updated per user request to ignore "data sources search box" response
+             if (lowerLabel === 'search' || 
+                 lowerLabel.includes('search box') || 
+                 (lowerLabel.includes('jira') && lowerLabel.includes('url'))) {
                  console.log("[M365 Agent] Ignoring excluded field focus:" + lowerLabel);
                  return;
              }
@@ -232,6 +257,14 @@ document.addEventListener('focusin', (e) => {
                      else if (header.includes("ServiceNow")) sessionDetectedConnector = "ServiceNow";
                  }
 
+                 // Extract Current Value intelligently 
+                 // Fix: Fluent UI 'div' comboboxes don't have .value, use innerText
+                 let currentValue = target.value;
+                 if (!currentValue && (target.getAttribute('role') === 'combobox' || target.getAttribute('role') === 'listbox')) {
+                     currentValue = target.innerText;
+                 }
+                 currentValue = (currentValue || "").trim();
+
                  try {
                      if (!chrome.runtime?.id) throw new Error("Extension context invalidated (Pre-check)");
                      
@@ -240,7 +273,7 @@ document.addEventListener('focusin', (e) => {
                         payload: {
                             action: 'field_focus',
                             field_label: labelText,
-                            field_value: target.value || "", 
+                            field_value: currentValue, 
                             connector: lastClickIntent || sessionDetectedConnector || document.title || "Unknown Context", 
                             timestamp: Date.now()
                         }

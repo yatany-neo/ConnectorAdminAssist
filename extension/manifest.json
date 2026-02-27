@@ -9,6 +9,12 @@
     "scripting",
     "storage"
   ],
+  "web_accessible_resources": [
+    {
+      "resources": ["images/*.png", "images/*.jpg"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "host_permissions": [
     "http://localhost:8000/*",
     "*://*.microsoft.com/*",

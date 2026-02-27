@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from openai import AsyncAzureOpenAI
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from azure.identity import DeviceCodeCredential
 from azure.core.credentials import AccessToken
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
     logger.info("Backend Service Shutting Down...")
 
 app = FastAPI(title="M365 Admin Companion Agent Backend", lifespan=lifespan)
+
 
 # Wrapper to make DeviceCodeCredential non-blocking
 class AsyncDeviceCodeCredential:
@@ -235,13 +237,18 @@ If the DOM suggests the user just finished a step (e.g. clicked Next), confirm t
 """
 
     # If this is a very specific field focus request, override the system prompt to be laser-focused
-    if "field_focus" in user_msg or (request.message and "focused on field" in request.message):
-        # Normalize msg for checking
-        msg_lower = user_msg.lower()
-        print(f"DEBUG: Processing Field Focus. Msg: {msg_lower[:100]}...")
+    # Also handle specific Action Commands like 'confirm the output matches' here to ensure they aren't missed
+    msg_lower = user_msg.lower()
+    
+    triggers = ["field_focus", "focused on field", "confirm the output matches", "phase 1", "phase 2"]
+    if any(t in msg_lower for t in triggers) or "action:" in msg_lower:
+        print(f"DEBUG: Processing Field Focus or Special Action. Msg: {msg_lower[:100]}...")
         
         # 1. Specialized Logic for Display Name
-        if "display name" in msg_lower or "name" in msg_lower:
+        # CAUTION: 'Name' is ambiguous. It could be "Connection Name" (M365 Search) OR "Agent Name" (GCA Config).
+        # We must disambiguate based on context.
+        if ("display name" in msg_lower or "name" in msg_lower) and "phase 2" not in msg_lower:
+             # Default to Connection Naming Logic (Old logic)
              print("DEBUG: >>> Display Name Logic Triggered <<<")
              today_str = datetime.date.today().strftime("%Y%m%d")
              
@@ -328,56 +335,660 @@ The user is focused on the 'Description' field.
 **Insight**: [Warning and Strategy]
 **Suggestion**: ```Contains all active [Tool] [Object], [Synonym1], and [Synonym2] for [Action].```
 """
+        elif "confirm the output matches" in msg_lower:
+             # Phase 1: Installation
+             system_prompt = """You are a helpful assistant guiding the Graph Connector Agent installation.
+The user has just confirmed their PowerShell Execution Policy is correct.
+
+**Your Goal**: Guide the user through **Phase 1: Installation**.
+
+**Response Structure**:
+1. **Acknowledgment**: "Environment ready. Starting Phase 1."
+2. **Steps**:
+   - **Step 1**: Locate and double-click `GcaInstaller.msi`.
+   - **Step 2**: Check **"I accept the terms..."** and click **Next**.
+   - **Step 3**: Click **Install** and wait for completion.
+   - **Step 4**: Click **Finish**.
+
+3. **Confirmation**:
+   - Ask the user to confirm installation is complete.
+   - [I have installed the GCA](action:confirm-gca-phase1)
+
+**Output Format**:
+**Insight**: Starting Phase 1: Installation.
+**Suggestion**: 
+[Provide Steps 1-4 using Markdown lists. Insert a blank line between each step for readability.]
+[End with the action button: [I have installed the GCA](action:confirm-gca-phase1)]
+"""
+        elif "phase 1" in msg_lower:
+             # Phase 2: Registration Config
+             system_prompt = """You are a helpful assistant guiding the Graph Connector Agent installation.
+The user has confirmed the GCA is installed.
+
+**Your Goal**: Guide the user through **Phase 2: Configuration**.
+
+**Response Structure**:
+1. **Acknowledgment**: "Great! Now let's register the agent."
+2. **Steps**:
+   1. Launch the **Graph connector agent config** app from the Start Menu.
+   2. Click **Sign in** and log in with your **M365 Admin Account**.
+   3. On the **Agent Details** screen:
+     - **Name**: Enter `M365GCA`.
+     - **App ID**: Pause here. You need to create this in Azure.
+
+3. **Confirmation**:
+   - Ask to proceed to Azure App creation.
+   - [I am ready to create Azure App](action:confirm-gca-phase2)
+
+**Output Format**:
+**Insight**: Starting Phase 2: Configuration.
+**Suggestion**: 
+[Provide the steps using a numbered list (1., 2., 3.). Insert a blank line between each step for readability.]
+[End with the action button: [I am ready to create Azure App](action:confirm-gca-phase2)]
+"""
+        elif "phase 2" in msg_lower:
+             # Phase 3: Azure App Creation
+             system_prompt = """You are a helpful assistant guiding the Graph Connector Agent installation.
+The user is ready to create the Azure App.
+
+**Your Goal**: Guide the user through **Phase 3: Azure App Registration**.
+
+**Response Structure**:
+1. **Acknowledgment**: "Let's create the Azure App to get the ID."
+2. **Steps**:
+   1. Go to [Azure Portal](https://azure.microsoft.com/) -> **Entra ID**.
+     <br>
+     ![Entra ID Icon](https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Microsoft_Entra_ID_color_icon.svg/100px-Microsoft_Entra_ID_color_icon.svg.png)
+   
+   2. Click **+ Add** -> **App registration**.
+     <br>
+     ![Register App Form](https://learn.microsoft.com/en-us/entra/identity-platform/media/quickstart-register-app/portal-02-app-reg-01.png)
+
+   3. Fill in the details:
+     - Name: `M365GCAApp`
+     - Click **Register**.
+
+   4. Click **API permissions** -> **+ Add a permission**.
+
+   5. Select **Microsoft Graph**.
+     <br>
+     ![Request API Permissions](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_1.jpg)
+
+3. **Confirmation**:
+   - Ask the user if they have reached the permissions screen.
+   - [I have selected Microsoft Graph](action:confirm-gca-phase3)
+
+
+**Output Format**:
+**Insight**: Starting Phase 3: Azure App.
+**Suggestion**: 
+[Provide the steps using a numbered list (1., 2., 3.). Insert a blank line between each step for readability. Ensure images have their own lines.]
+[End with the action button: [I have selected Microsoft Graph](action:confirm-gca-phase3)]
+"""
+        elif "confirm-gca-phase3" in msg_lower or "microsoft graph" in msg_lower:
+             # Phase 3 Continued: Application Permissions
+             system_prompt = """You are guiding the user through Azure App Registration (Phase 3).
+The user has just selected "Microsoft Graph" in the API Permissions pane.
+
+**Your Goal**: Guide the user to select the correct **Application permissions**.
+
+**Response Structure**:
+1. **Steps**:
+   1. Click on **Application permissions** (NOT Delegated).
+      <br>
+      ![Select Application Permissions](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_2.jpg)
+
+   2. In the search box, type `ExternalItem`.
+   3. Expand **ExternalItem** and select **TWO** permissions:
+      - `ExternalItem.ReadWrite.All`
+      - `ExternalItem.ReadWrite.OwnedBy`
+      <br>
+      ![Select Permissions](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_3.jpg)
+
+   4. Click **Add permissions** at the bottom.
+
+2. **Confirmation**:
+   - Ask the user to confirm they have added these 2 permissions.
+   - [I have added the permissions](action:confirm-gca-phase3-done)
+
+**Output Format**:
+**Insight**: Selecting Application Permissions.
+**Suggestion**: 
+[Provide steps 1-4 using the images.]
+"""
+        elif "confirm-gca-phase3-done" in msg_lower or "user added application permission" in msg_lower:
+             # Phase 3 Part 2: ExternalConnection Permission
+             system_prompt = """You are guiding the user through Azure App Registration (Phase 3).
+The user has added the 'ExternalItem' permissions.
+
+**Your Goal**: Guide the user to add the **ExternalConnection** permission.
+
+**Response Structure**:
+1. **Steps**:
+   1. Click **+ Add a permission** again.
+   2. Select **Microsoft Graph** -> **Application permissions**.
+   3. In the search box, type `ExternalConnection`.
+   4. Expand **ExternalConnection** and select:
+      - `ExternalConnection.ReadWrite.OwnedBy`
+      <br>
+      ![Select ExternalConnection](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_4.jpg)
+
+   5. Click **Add permissions**.
+
+2. **Confirmation**:
+   - Ask the user to confirm they have added this permission.
+   - [I have added ExternalConnection permission](action:confirm-gca-phase3-final)
+
+**Output Format**:
+**Insight**: Adding ExternalConnection Permission.
+**Suggestion**: 
+[Provide the steps clearly]
+"""
+        elif "confirm-gca-phase3-final" in msg_lower or "user added externalconnection permission" in msg_lower:
+             # Phase 3 Part 3: Directory Permission
+             system_prompt = """You are guiding the user through Azure App Registration (Phase 3).
+The user has added the 'ExternalConnection' permissions.
+
+**Your Goal**: Guide the user to add the **Directory** permission.
+
+**Response Structure**:
+1. **Steps**:
+   1. Click **+ Add a permission** one last time.
+   2. Select **Microsoft Graph** -> **Application permissions**.
+   3. In the search box, type `Directory`.
+   4. Expand **Directory** and select:
+      - `Directory.Read.All`
+      <br>
+      ![Select Directory Permission](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_5.jpg)
+
+   5. Click **Add permissions**.
+
+2. **Confirmation**:
+   - Ask the user to confirm they have added this permission.
+   - [I have added Directory permission](action:confirm-gca-permissions-all)
+
+**Output Format**:
+**Insight**: Adding Directory Permission.
+**Suggestion**: 
+[Provide the steps 1-5 using the image.]
+"""
+        elif "confirm-gca-permissions-all" in msg_lower or "user added directory permission" in msg_lower:
+             # Phase 3 Part 4: Admin Consent
+             system_prompt = """You are guiding the user through Azure App Registration (Phase 3).
+The user has added all necessary permissions.
+
+**Your Goal**: Guide the user to **Grant Admin Consent**.
+
+**Response Structure**:
+1. **Steps**:
+   1. Locate the button labeled **Grant admin consent for [Org Name]** (top of the list).
+   2. Click it and select **Yes** in the popup.
+      <br>
+      ![Grant Admin Consent](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_6.jpg)
+
+   3. **Verify**: Ensure all permissions now show a green checkmark under "Status".
+      <br>
+      ![Verify Consent](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_7.jpg)
+
+2. **Confirmation**:
+   - Ask the user to confirm the permissions are granted.
+   - [I confirm admin consent is granted](action:confirm-gca-consent)
+
+**Output Format**:
+**Insight**: Granting Admin Consent.
+**Suggestion**: 
+[Provide the steps using the images.]
+"""
+        elif "confirm-gca-consent" in msg_lower or "user granted admin consent" in msg_lower:
+             # Phase 3 Part 5: Certificates & secrets
+             system_prompt = """You are guiding the user through Azure App Registration (Phase 3).
+The user has granted Admin Consent.
+
+**Your Goal**: Guide the user to **Certificates & secrets**.
+
+**Response Structure**:
+1. **Steps**:
+   1. On the left menu, click **Certificates & secrets**.
+      <br>
+      ![Click Certificates & secrets](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_8.jpg)
+
+2. **Confirmation**:
+   - Ask the user to confirm they are on this page.
+   - [I am on the Certificates & secrets page](action:confirm-gca-cert-page)
+
+**Output Format**:
+**Insight**: Navigating to Certificates & secrets.
+**Suggestion**: 
+[Provide steps using the image.]
+"""
+        elif "confirm-gca-cert-page" in msg_lower or "user opened certificates" in msg_lower:
+             # Phase 3 Part 6: Create Secret
+             system_prompt = """You are guiding the user through Azure App Registration (Phase 3).
+The user is on the Certificates & secrets page.
+
+**Your Goal**: Guide the user to create a **New client secret**.
+
+**Response Structure**:
+1. **Steps**:
+   1. Click the **+ New client secret** button.
+      <br>
+      ![New Client Secret](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_9.jpg)
+
+2. **Confirmation**:
+   - Ask the user to confirm they have clicked the button and see the "Add a client secret" popup.
+   - [I have clicked New client secret](action:confirm-gca-new-secret)
+
+**Output Format**:
+**Insight**: Creating Client Secret.
+**Suggestion**: 
+[Provide steps using the image.]
+"""
+        elif "confirm-gca-new-secret" in msg_lower or "user clicked new client secret" in msg_lower:
+             # Phase 3 Part 7: Client Secret Details
+             system_prompt = """You are guiding the user through Azure App Registration (Phase 3).
+The user has clicked 'New client secret'.
+
+**Your Goal**: Guide the user to fill in the secret details.
+
+**Response Structure**:
+1. **Steps**:
+   1. In the **Description** field, enter `GCA Secret`.
+   2. For **Expires**, select **Recommended: 6 months**.
+   3. Click the **Add** button at the bottom.
+      <br>
+      ![Add Secret Details](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_10.jpg)
+
+2. **Confirmation**:
+   - Ask the user to confirm they have clicked Add.
+   - [I have clicked Add](action:confirm-gca-secret-added)
+
+**Output Format**:
+**Insight**: Adding Client Secret.
+**Suggestion**: 
+[Provide steps using the image.]
+"""
+        elif "confirm-gca-secret-added" in msg_lower or "user added secret" in msg_lower:
+             # Phase 3 Part 8: Copy Secret Value
+             system_prompt = """You are guiding the user through Azure App Registration (Phase 3).
+The secret has been created.
+
+**Your Goal**: Guide the user to **IMMEDIATELY** copy the Secret Value.
+
+**CRITICAL WARNING**:
+- The **Value** will be hidden forever once you leave this page.
+- You typically need the **Value** (not just the Secret ID) for configuration.
+
+**Response Structure**:
+1. **Steps**:
+   1. Locate the **Value** column for the new secret.
+   2. Copy the **Value** and save it securely (e.g., in a password manager).
+      <br>
+      ![Copy Secret Value](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_11.jpg)
+
+2. **Confirmation**:
+   - Ask the user to confirm they have recorded the Secret Value.
+   - [I have recorded the Secret Value](action:confirm-gca-secret-value)
+
+**Output Format**:
+**Insight**: Copying Secret Value.
+**Suggestion**: 
+[Provide steps and the warning.]
+"""
+        elif "confirm-gca-secret-value" in msg_lower or "user recorded secret" in msg_lower:
+             # Phase 3 Part 9: Get App ID
+             system_prompt = """You are guiding the user through Azure App Registration (Phase 3).
+The user has the Secret Value. Now we need the **Application (client) ID**.
+
+**Your Goal**: Guide the user to get the App ID.
+
+**Response Structure**:
+1. **Steps**:
+   1. On the left menu, click **Overview**.
+   2. Locate the **Application (client) ID**.
+   3. Copy it and save it alongside your Secret Value.
+      <br>
+      ![Copy App ID](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_12.jpg)
+
+2. **Confirmation**:
+   - Ask the user to confirm they have recorded the App ID.
+   - [I have recorded the App ID](action:confirm-gca-final-appid)
+
+**Output Format**:
+**Insight**: Copying Application ID.
+**Suggestion**: 
+[Provide steps using the image.]
+"""
+        elif "confirm-gca-final-appid" in msg_lower or "user recorded app id" in msg_lower:
+             # Phase 4 Start: Register in Config App
+             system_prompt = """You are guiding the user through Graph Connector Agent installation.
+**Phase 3 (Azure Setup) is COMPLETE.**
+
+**Your Goal**: Guide the user to register the agent in the configuration app.
+
+**Response Structure**:
+1. **Steps**:
+   1. Switch back to the **Graph connector agent config** window on your desktop.
+   2. Paste your **Application ID**.
+   3. Paste your **client secret** (Value).
+   4. Click **Register**.
+      <br>
+      ![Register Agent](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_13.jpg)
+
+2. **Confirmation**:
+   - Ask the user to confirm they have clicked Register.
+   - [I have clicked Register](action:confirm-gca-register-clicked)
+
+**Output Format**:
+**Insight**: Azure Setup Complete. Back to Agent Config.
+**Suggestion**: 
+[Provide steps.]
+"""
+        elif "confirm-gca-register-clicked" in msg_lower or "user clicked register" in msg_lower:
+             # Phase 4 Next: Health Check
+             system_prompt = """You are guiding the user through Graph Connector Agent installation.
+You have clicked Register.
+
+**Your Goal**: Guide the user to perform a Health Check.
+
+**Response Structure**:
+1. **Steps**:
+   1. Locate the **Health Check** button in the app window.
+   2. Click it to verify the agent status.
+      <br>
+      ![Click Health Check](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_14.jpg)
+
+2. **Confirmation**:
+   - Ask the user to confirm they have clicked the button.
+   - [I have clicked Health Check](action:confirm-gca-health-check-clicked)
+
+**Output Format**:
+**Insight**: verifying Agent Health.
+**Suggestion**: 
+[Provide steps.]
+"""
+        elif "confirm-gca-health-check-clicked" in msg_lower or "user clicked health check" in msg_lower:
+             # Phase 4 Next: Verify Success
+             system_prompt = """You are guiding the user through Graph Connector Agent installation.
+**Health Check Initiated.**
+
+**Your Goal**: Confirm the agent is healthy.
+
+**Response Structure**:
+1. **Steps**:
+   1. Wait for the check to complete (it may take a moment).
+   2. Verify that you see a green **Success** banner indicating the agent connection is successful.
+      <br>
+      ![Success Banner](chrome-extension://__MSG_@@extension_id__/images/Azure_API_Permission_15.jpg)
+
+2. **Confirmation**:
+   - Ask the user to confirm they see the success message.
+   - [I see the Success banner](action:confirm-gca-health-success)
+
+**Output Format**:
+**Insight**: Verifying Health Success.
+**Suggestion**: 
+[Provide steps.]
+"""
+        elif "confirm-gca-health-success" in msg_lower or "user confirmed success" in msg_lower:
+             # Phase 5: Create Connection & Select GCA
+             system_prompt = """You are guiding the user through Graph Connector Agent installation.
+**Agent is Healthy.**
+
+**Your Goal**: Guide the user to select the agent in the browser.
+
+**Response Structure**:
+1. **Steps**:
+   1. Return to the browser tab where you are creating the connection.
+   2. Refresh the page if needed.
+   3. In the **GCA (Graph Connector Agent)** dropdown list, you should now see your newly registered agent.
+   4. Select the agent from the list.
+      <br>
+      ![Select GCA](chrome-extension://__MSG_@@extension_id__/images/GCA_selection_1.jpg)
+
+**Note**: If the GCA option was already present previously, the setup steps were skipped.
+
+2. **Confirmation**:
+   - Ask the user to confirm they have selected the agent.
+   - [I have selected the GCA](action:confirm-gca-selected)
+
+**Output Format**:
+**Insight**: Selecting the Agent.
+**Suggestion**: 
+[Provide steps.]
+"""
+        elif "confirm-gca-selected" in msg_lower or "user selected gca" in msg_lower:
+             # Transition to Authentication
+             system_prompt = """You are guiding the user through the "Authentication" phase for Jira Data Center.
+The user has selected the GCA and is now facing the Authentication form.
+
+**Your Goal**: Guide the user to configure OAuth 2.0.
+
+**Response Structure**:
+1. **Insight**: "Next Step: Authentication."
+2. **Suggestion**:
+   "Click **Next** to proceed to the Authentication step."
+   <br>
+   "Select **OAuth 2.0** as the type."
+   <br><br>
+   "You will need a **Client ID** and **Client Secret** which you must generate in your Jira Administration Console."
+   <br><br>
+   **Do you have these credentials?**
+   <br>
+   · If **NO**, I can guide you to generate them in Jira:
+   [Guide: Get Jira Credentials](action:guide-jira-oauth)
+   <br>
+   · If **YES**, enter them and click Authorize:
+   [I have authorized the connection](action:confirm-auth-success)
+
+**Output Format**:
+**Insight**: Moving to Authentication.
+**Suggestion**: 
+[Content]
+"""
+        elif "guide-jira-oauth" in msg_lower:
+             # Jira OAuth Guide
+             system_prompt = """You are an expert Jira Administrator.
+The user needs to generate Client ID and Secret for the Microsoft Graph Connector.
+
+**Your Goal**: Provide the EXACT steps to create an Application Link in Jira Data Center.
+
+**Response Structure**:
+1. **Insight**: "Generating OAuth 2.0 Credentials."
+2. **Suggestion**:
+   "**Step 1**: Log in to Jira as Admin."
+   <br><br>
+   "**Step 2**: Go to **Settings (gear)** -> **Applications** -> **Application links**."
+   <br><br>
+   "**Step 3**: Click **Create link**."
+   <br><br>
+   "**Step 4**: Enter the application's URL (e.g., `https://gcs.office.com`) and click **Create new link**."
+   <br><br>
+   "**Step 5**: In the **Configure Application Links** window, fill in the required details:"
+   <br>
+   - **Application Name**: Microsoft Graph Connector
+   - **Application Type**: Generic Application
+   - **Redirect URL**: `https://gcs.office.com/v1.0/admin/oauth/callback`
+   - **Permission**: Select `Write`
+   <br><br>
+   "**Step 6**: Click **Save**."
+   <br><br>
+   "**Step 7**: Once the application link is created, click on the pencil icon (Edit) to open its details."
+   <br><br>
+   "**Step 8**: Under the **Incoming Authentication** (or OAuth) section, generate the **Client ID** and **Client Secret**."
+   <br><br>
+   "**Step 9**: Copy and securely save the **Client ID** and **Client Secret**, as they will be required here."
+   <br><br>
+   [I have my Client ID & Secret](action:confirm-jira-oauth-done)
+
+**Output Format**:
+**Insight**: Jira Admin Steps.
+**Suggestion**: 
+[Steps]
+"""
+
+        elif "confirm-jira-oauth-done" in msg_lower:
+             system_prompt = """You are a helpful assistant.
+The user has just generated their OAuth credentials.
+
+**Response Structure**:
+1. **Insight**: "Credentials Ready."
+2. **Suggestion**:
+   "Excellent. Please paste the **Client ID** and **Client Secret** into the fields below, then click **Authorize**."
+"""
+
+        elif "confirm-auth-success" in msg_lower:
+             # Authentication Done
+             system_prompt = """You are guiding the user.
+The user has clicked Authorize and presumably succeeded.
+
+**Your Goal**: Move to the next step (Data Selection).
+
+**Response Structure**:
+1. **Insight**: "Authentication Complete."
+2. **Suggestion**:
+   "Great! Now that you are authenticated, click **Next**."
+   <br>
+   "We will now select which Jira projects or issues you want to index."
+"""
+        elif "start-gca-install-guide" in msg_lower:
+             # Explicitly start the installation guide (Phase 1)
+             system_prompt = """You are a helpful assistant guiding the Graph Connector Agent installation.
+**Phase 1: Installation**.
+
+**Response Structure**:
+1. **Acknowledgment**: "Starting GCA Installation Guide."
+2. **Steps**:
+   1. Download the agent: [Download Graph Connector Agent](https://aka.ms/gca).
+   <br>
+   2. Open PowerShell: [Open PowerShell](action:open-powershell).
+   <br>
+   3. Run the following commands to set execution policies:
+   ```powershell
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+   ```
+   ```powershell
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine
+   ```
+   Check the policies:
+   ```powershell
+   Get-ExecutionPolicy -List
+   ```
+   <br>
+   4. Check the results against this table:
+   | Scope | ExecutionPolicy |
+   | :--- | :--- |
+   | CurrentUser | RemoteSigned |
+   | LocalMachine | RemoteSigned |
+   <br>
+   5. Confirm the installation is complete:
+   <br>
+   [I have installed the GCA](action:confirm-gca-phase1)
+
+**Output Format**:
+**Insight**: Phase 1: Installation.
+**Suggestion**: 
+[Provide steps.]
+"""
+
+        elif "authentication type" in msg_lower or "client id" in msg_lower or "client secret" in msg_lower:
+             # Authentication / OAuth Guidance
+             system_prompt = """You are an expert on Jira Data Center OAuth setup.
+The user is focusing on the 'Authentication type', 'Client ID', or 'Client Secret' field.
+**OAuth 2.0** is the standard (and only) option here.
+The user primarily needs the **Client ID** and **Client Secret**, which requires setting up an 'Application Link' in Jira.
+
+**Response Structure**:
+1. **Insight**: "OAuth 2.0 Configuration Required."
+2. **Suggestion**:
+   "OAuth 2.0 is the required method. To fill the **Client ID** and **Client Secret** below, you must create an incoming Application Link in your Jira Data Center."
+   <br><br>
+   **Click below for step-by-step instructions (Redirect URI included):**
+   <br>
+   [Show Configuration Guide](action:guide-jira-oauth)
+"""
+
         elif "graph connector agent" in msg_lower or "agent" in msg_lower:
-             # Specialized logic for the Agent interactions (Install Guide OR Selection)
+             # Decision logic based on DOM content
              system_prompt = """You are an expert on the 'Microsoft Graph Connector Agent'.
 The user is focusing on the 'Graph Connector Agent' dropdown field.
 
-**Scenarios & Responses**:
+**CRITICAL PRIORITY**: 
+First, check the `current value` mentioned in the user's message.
+- If `current value` is something like "GCA315", "Agent-01", or any specific name (and NOT empty, NOT "Select...", NOT "Loading..."), **STOP ANALYZING DOM**. The user has selected an agent. **Use Scenario A**.
 
-1. **If the dropdown is EMPTY (No options):**
-   - The user needs to install the agent locally.
-   
-   - **Step 1**: Provide the download link: [Download Graph Connector Agent](https://aka.ms/gca).
-     (Do not use horizontal rules '---' between steps).
+**Detailed DOM Analysis (Only if 'current value' is empty/default)**:
+Look at the `[Simplified Page DOM]` context provided.
+**CRITICAL**: Fluent UI dropdowns are NOT standard `<select>` tags. 
+You must look for:
+1. `div` or `span` elements with `role="option"`.
+2. Content inside classes like `ms-Callout`, `ms-Layer`, or `ms-List`.
+3. Any text that looks like a custom Agent Name (e.g., "GCA...", "Agent", "Machine1").
 
-   - **Step 2**: Provide the **3 Mandatory PowerShell Commands** (in separate code blocks). 
-     First, provide the shortcut link: [Open PowerShell](action:open-powershell).
-     Then, list the commands:
-     ```powershell
-     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-     ```
-     ```powershell
-     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine
-     ```
-     ```powershell
-     Get-ExecutionPolicy -List
-     ```
+**Scenarios**:
 
-   - **Step 3**: Verify Policy
-     Ask the admin to confirm the output of `Get-ExecutionPolicy -List` matches this table EXACTLY (Render as Markdown Table):
-     | Scope | ExecutionPolicy |
-     | :--- | :--- |
-     | CurrentUser | RemoteSigned |
-     | LocalMachine | RemoteSigned |
-     
-     <br>
-     <br>
+1. **Scenario A: Agent Already Selected**
+   - **Condition**: The input field `current value` displays a selected agent name (e.g., "GCA315") OR the DOM shows the selected item prominently.
+   - **Goal**: Validate the selection has been made.
+   - **Response Structure**:
+     1. **Insight**: "GCA Selected."
+     2. **Suggestion**: "You have already selected an agent ({current_value}). You can proceed to the next step."
 
-   - **Step 4**: **Confirm & Proceed**
-     State clearly: "If your output matches the table above, your environment is correctly configured. You can now proceed with the Graph Connector Agent installation/registration wizard."
+2. **Scenario B: Options Exist (Agent is installed)**
+   - **Condition**: You see ANY text indicating a specific agent (e.g. "GCA315", "MyAgent", "Desktop-XYZ") in the DOM, especially in a list/portal area.
+   - **Goal**: Inform them the agent is detected and guide selection.
+   - **Response Structure**:
+     1. **Insight**: "GCA Installed and Registered."
+     2. **Suggestion**:
+        "You have successfully installed and registered the GCA. Please select the correct GCA from the list."
+        <br>
+        ![Select GCA](chrome-extension://__MSG_@@extension_id__/images/GCA_selection_1.jpg)
+        <br><br>
+        "If you want to understand the GCA installation and registration process, click below:"
+        <br>
+        [Guide me to install GCA](action:start-gca-install-guide)
 
-2. **If the dropdown has options:**
-   - Advise the user to simply select their registered agent.
+3. **Scenario C: Dropdown is Empty (No Options)**
+   - **Condition**: The dropdown list only contains "Select...", "Loading...", or no list is visible using a DOM scan.
+   - **Goal**: Guide them to install using the standard Phase 1 instructions, BUT acknowledge the possibility of a "closed list".
+   - **Response Structure**:
+     1. **Insight**: "No Agent Detected (or List Closed)."
+     2. **Suggestion**:
+        "I currently cannot see any agents. This might happen if the dropdown list is closed."
+        
+        **If you see your agent in the list**, please select it directly and confirm:
+        [I have selected the GCA](action:confirm-gca-selected)
+        
+        **If the list is truly empty**, please install the agent:
+        
+        1. Download the agent: [Download Graph Connector Agent](https://aka.ms/gca).
+        2. Open PowerShell: [Open PowerShell](action:open-powershell).
+        3. Run the following commands to set execution policies:
+        ```powershell
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+        ```
+        ```powershell
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine
+        ```
+        Check the policies:
+        ```powershell
+        Get-ExecutionPolicy -List
+        ```
+        4. Check the results against this table:
+        | Scope | ExecutionPolicy |
+        | :--- | :--- |
+        | CurrentUser | RemoteSigned |
+        | LocalMachine | RemoteSigned |
+        
+        5. Confirm the installation is complete:
+        [I have installed the GCA](action:confirm-gca-phase1)
 
 **Output Format**:
-**Insight**: [Explain that they need to select an active agent, or install one if none exist.]
-**Suggestion**: [Follow the numbered steps above. Ensure there are blank lines between steps for readability.]
+**Insight**: [Status Keyword]
+**Suggestion**: 
+[Rich Content with Steps, Code Blocks, and Buttons]
+
+**Constraint**: Do NOT output any analysis or thought process. ONLY output the **Insight** and **Suggestion** sections.
 """
-        elif "search" in msg_lower or ("url" in msg_lower and "jira" in msg_lower): 
-             # Explicitly IGNORE Search Boxes and Jira URL fields as per user request
-             return {"response": ""}
-             return {"response": ""}
         else:
              # 3. General Field Logic
              system_prompt = """You are a real-time form filling assistant. 
@@ -402,7 +1013,7 @@ The user currently has their cursor inside a specific input field.
                 {"role": "user", "content": user_msg}
             ],
             temperature=0.7,
-            max_tokens=600
+            max_tokens=2000
         )
         
         return {"response": completion.choices[0].message.content}

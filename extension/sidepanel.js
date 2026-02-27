@@ -8,8 +8,6 @@ const ui = {
     connectionDot: document.getElementById('connection-dot'),
     connectionText: document.getElementById('connection-text'),
     userDisplay: document.getElementById('user-display'),
-    userInput: document.getElementById('user-input'),
-    btnSend: document.getElementById('btn-send'),
     chatContainer: document.getElementById('chat-container')
 };
 
@@ -124,7 +122,7 @@ function completeLogin(userName) {
     ui.connectionDot.className = 'status-indicator status-green';
     ui.connectionText.textContent = "Securely Connected";
     ui.userDisplay.textContent = userName;
-    addMessage('system', `Authentication successful. Agent acts as: ${userName}`);
+    addMessage('system', `Authentication succeeded. I will guide you to create connections.`);
     
     // Check initial context
     if (currentContextUrl) {
@@ -205,28 +203,198 @@ document.addEventListener('click', async (e) => {
         });
     }
     // 2. Action Button Logic (Backend Tools)
-    if (e.target.classList.contains('action-btn')) {
-        const toolAction = e.target.getAttribute('data-action');
+    const actionBtn = e.target.closest('.action-btn');
+    if (actionBtn) {
+        const toolAction = actionBtn.getAttribute('data-action') ? actionBtn.getAttribute('data-action').trim() : "";
+        console.log("[M365 Agent] Action clicked:", toolAction);
+
         if (toolAction === 'open-powershell') {
             try {
-                e.target.textContent = "🚀 Launching...";
-                e.target.disabled = true;
+                actionBtn.textContent = "🚀 Launching...";
+                actionBtn.disabled = true;
                 const res = await fetch(`${API_URL}/tools/open-powershell`, { method: 'POST' });
                 const json = await res.json();
                 if (json.status === 'success') {
-                     e.target.textContent = "✅ Opened";
+                     actionBtn.textContent = "✅ Opened";
                 } else {
-                     e.target.textContent = "❌ Failed";
+                     actionBtn.textContent = "❌ Failed";
                      addMessage('system', 'Error launching tool: ' + json.message);
                 }
                 setTimeout(() => {
-                     e.target.textContent = "🚀 Open PowerShell";
-                     e.target.disabled = false;
+                     actionBtn.textContent = "🚀 Open PowerShell";
+                     actionBtn.disabled = false;
                 }, 3000);
             } catch(err) {
                 console.error(err);
-                e.target.textContent = "❌ Network Error";
+                actionBtn.textContent = "❌ Network Error";
             }
+        }
+        
+        // New Action: Confirm GCA Install (Sends text to agent)
+        if (toolAction === 'confirm-gca-install') {
+             actionBtn.textContent = "✅ Confirmed";
+             actionBtn.disabled = true;
+             askAgent("I confirm the output matches the table.", currentContextUrl);
+        }
+
+        // New Manual Trigger for Install Guide
+        if (toolAction === 'start-gca-install-guide') {
+            actionBtn.textContent = "🚀 Starting Guide...";
+            actionBtn.disabled = true;
+            askAgent("Action: start-gca-install-guide", currentContextUrl);
+        }
+
+        // New Manual Trigger for Jira OAuth Guide
+        if (toolAction === 'guide-jira-oauth') {
+            actionBtn.textContent = "🚀 Opening Guide...";
+            actionBtn.disabled = true;
+            askAgent("Action: guide-jira-oauth", currentContextUrl);
+        }
+
+        // Phase 1 Confirmation: Installed MSI
+        if (toolAction === 'confirm-gca-phase1') {
+             actionBtn.textContent = "✅ Installed";
+             actionBtn.disabled = true;
+             askAgent("Action: User completed Phase 1 (Installation)", currentContextUrl);
+        }
+
+        // Phase 2 Confirmation: Launched App
+        if (toolAction === 'confirm-gca-phase2') {
+             actionBtn.textContent = "✅ App Launched";
+             actionBtn.disabled = true;
+             askAgent("Action: User completed Phase 2 (Config App Launch)", currentContextUrl);
+        }
+
+        // Phase 3 Confirmation: Selected MS Graph
+        if (toolAction === 'confirm-gca-phase3') {
+             actionBtn.textContent = "✅ Selected";
+             actionBtn.disabled = true;
+             askAgent("Action: User selected Microsoft Graph", currentContextUrl);
+        }
+
+        // Phase 3 Done Confirmation: Added Permission
+        if (toolAction === 'confirm-gca-phase3-done') {
+             actionBtn.textContent = "✅ Permission Added";
+             actionBtn.disabled = true;
+             askAgent("Action: User added Application Permission", currentContextUrl);
+        }
+
+        // Phase 3 Final Confirmation: Added ExternalConnection
+        if (toolAction === 'confirm-gca-phase3-final') {
+             actionBtn.textContent = "✅ ExternalConnection Added";
+             actionBtn.disabled = true;
+             askAgent("Action: User added ExternalConnection Permission", currentContextUrl);
+        }
+
+        // Phase 3 Permissions Complete
+        if (toolAction === 'confirm-gca-permissions-all') {
+             actionBtn.textContent = "✅ Permissions Complete";
+             actionBtn.disabled = true;
+             askAgent("Action: User added Directory Permission", currentContextUrl);
+        }
+
+        // Phase 3 Consent Complete
+        if (toolAction === 'confirm-gca-consent') {
+             actionBtn.textContent = "✅ Consent Granted";
+             actionBtn.disabled = true;
+             askAgent("Action: User granted admin consent", currentContextUrl);
+        }
+
+        // Phase 3 App ID Copied
+        if (toolAction === 'confirm-gca-appid') {
+             actionBtn.textContent = "✅ ID Copied";
+             actionBtn.disabled = true;
+             askAgent("Action: User copied App ID", currentContextUrl);
+        }
+
+        // Phase 3 Certificates Page
+        if (toolAction === 'confirm-gca-cert-page') {
+             actionBtn.textContent = "✅ Page Opened";
+             actionBtn.disabled = true;
+             askAgent("Action: User opened Certificates & secrets page", currentContextUrl);
+        }
+
+        // Phase 3 New Secret Clicked
+        if (toolAction === 'confirm-gca-new-secret') {
+             actionBtn.textContent = "✅ Button Clicked";
+             actionBtn.disabled = true;
+             askAgent("Action: User clicked New client secret", currentContextUrl);
+        }
+
+        // Phase 3 Secret Added
+        if (toolAction === 'confirm-gca-secret-added') {
+             actionBtn.textContent = "✅ Secret Added";
+             actionBtn.disabled = true;
+             askAgent("Action: User added secret", currentContextUrl);
+        }
+
+        // Phase 3 Secret Copied
+        if (toolAction === 'confirm-gca-secret-value') {
+             actionBtn.textContent = "✅ Secret Recorded";
+             actionBtn.disabled = true;
+             askAgent("Action: User recorded secret", currentContextUrl);
+        }
+
+        // Phase 3 Final: App ID Recorded
+        if (toolAction === 'confirm-gca-final-appid') {
+             actionBtn.textContent = "✅ App ID Recorded";
+             actionBtn.disabled = true;
+             askAgent("Action: User recorded App ID", currentContextUrl);
+        }
+
+        // Phase 4: Register Clicked
+        if (toolAction === 'confirm-gca-register-clicked') {
+            actionBtn.textContent = "✅ Register Clicked";
+            actionBtn.disabled = true;
+            askAgent("Action: User clicked Register", currentContextUrl);
+        }
+
+        // Phase 4: Health Check Clicked
+        if (toolAction === 'confirm-gca-health-check-clicked') {
+            actionBtn.textContent = "✅ Health Check Clicked";
+            actionBtn.disabled = true;
+            askAgent("Action: User clicked Health Check", currentContextUrl);
+        }
+
+        // Phase 4: Health Check Success
+        if (toolAction === 'confirm-gca-health-success') {
+            actionBtn.textContent = "✅ Health Check Passed";
+            actionBtn.disabled = true;
+            askAgent("Action: User confirmed success", currentContextUrl);
+        }
+
+        // Phase 5: GCA Selected
+        if (toolAction === 'confirm-gca-selected') {
+            actionBtn.textContent = "✅ GCA Selected";
+            actionBtn.disabled = true;
+            window.hasConfirmedGCA = true; // Set Global Flag
+            askAgent("Action: User selected GCA", currentContextUrl);
+        }
+
+        // Jira OAuth: Done
+        if (toolAction === 'confirm-jira-oauth-done') {
+             actionBtn.textContent = "✅ Credentials Ready";
+             actionBtn.disabled = true;
+             askAgent("Action: confirm-jira-oauth-done", currentContextUrl);
+        }
+
+        // Retry / Check Again Logic
+        if (toolAction === 'retry-field-check') {
+            actionBtn.textContent = "↻ Checking...";
+            actionBtn.disabled = true;
+            
+            // Force a re-focus simulation or just ask agent with current context
+            // We use the last known Intent if available
+            if (pendingIntent) {
+                 askAgent("Field Guidance", "intent-trigger", pendingIntent);
+            } else {
+                 askAgent("Context Update: Check dropdowns again", currentContextUrl);
+            }
+
+            setTimeout(() => {
+                 actionBtn.textContent = "↻ Check Again";
+                 actionBtn.disabled = false;
+            }, 2000);
         }
     }
 });
@@ -243,25 +411,42 @@ async function askAgent(userMessage, contextUrl, intentObj = null) {
     if (intentObj && intentObj.action === 'field_focus') {
         const fieldKey = intentObj.field_label + intentObj.connector; // Unique key for this field
         
-        // Check if we have a history entry for this
-        const existingMsgId = window.historyMap ? window.historyMap[fieldKey] : null;
+        // EXCEPTION: Dynamic Fields that depend on DOM state (e.g. GCA Dropdown) should NOT use history
+        const isDynamicField = intentObj.field_label.toLowerCase().includes("agent") || 
+                               intentObj.field_label.toLowerCase().includes("connector");
 
-        if (existingMsgId) {
-            const el = document.getElementById(existingMsgId);
-            if (el) {
-                console.log("Scrolling to existing advice for:", intentObj.field_label);
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                // Highlight effect
-                el.style.transition = "background-color 0.5s";
-                el.style.backgroundColor = "#fff9c4"; // light yellow
-                setTimeout(() => el.style.backgroundColor = "", 1000);
-                return; // STOP here, do not call backend
+        // GLOBAL LOCK: If user already confirmed GCA selection, ignore further focus on this field
+        if (isDynamicField && window.hasConfirmedGCA) {
+            console.log("Blocking GCA focus - Advice already confirmed.");
+            return;
+        }
+
+        if (!isDynamicField) {
+            // Check if we have a history entry for this
+            const existingMsgId = window.historyMap ? window.historyMap[fieldKey] : null;
+
+            if (existingMsgId) {
+                const el = document.getElementById(existingMsgId);
+                if (el) {
+                    console.log("Scrolling to existing advice for:", intentObj.field_label);
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Highlight effect
+                    el.style.transition = "background-color 0.5s";
+                    el.style.backgroundColor = "#fff9c4"; // light yellow
+                    setTimeout(() => el.style.backgroundColor = "", 1000);
+                    return; // STOP here, do not call backend
+                }
             }
         }
     }
     
     // Filter out automatic triggers from chat history
-    if (userMessage !== "Analyzed Page Navigation" && userMessage !== "Context Update" && userMessage !== "Intent Guided Help") {
+    if (userMessage !== "Analyzed Page Navigation" && 
+        userMessage !== "Context Update" && 
+        userMessage !== "Intent Guided Help" && 
+        userMessage !== "Field Guidance" &&
+        userMessage !== "Action: guide-jira-oauth" &&
+        userMessage !== "Action: confirm-jira-oauth-done") {
         addMessage('user', userMessage);
     } 
 
@@ -305,16 +490,24 @@ async function askAgent(userMessage, contextUrl, intentObj = null) {
                  // No system message needed, just the answer
             } else {
                  // New Connection
-                 payload.message = `User just clicked 'Add' for '${intentObj.connector}'. Please welcome the user, and explicitly ask them to click on the 'Display Name' input field to start the guided configuration.`;
-                 addMessage('system', parseMarkdown(`💡 I noticed you started setting up **${intentObj.connector}**. To get started, please **click on the 'Display Name' input box**.`));
+                 // User 'Add' click - silent welcome, wait for focus
+                 console.log("User started new connection for:", intentObj.connector);
+                 return; // Do nothing until focus
             }
         }
+
+        // Show Loading Indicator
+        const loadingId = addLoadingIndicator();
 
         const response = await fetch(`${API_URL}/agent/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
+        
+        // Remove Loading Indicator
+        removeMessage(loadingId);
+
         const data = await response.json();
         
         // Only show agent response if it's meaningful (not empty)
@@ -329,17 +522,22 @@ async function askAgent(userMessage, contextUrl, intentObj = null) {
             }
         }
     } catch (e) {
+        // Remove Loading Indicator (in case of error too)
+        const spinners = document.getElementsByClassName('typing-indicator');
+        while(spinners.length > 0){ spinners[0].parentNode.removeChild(spinners[0]); }
+        
         addMessage('system', 'Error contacting agent brain.');
     }
 }
 
-ui.btnSend.addEventListener('click', () => {
-    const text = ui.userInput.value;
-    if (!text) return;
-    
-    ui.userInput.value = '';
-    askAgent(text, currentContextUrl);
-});
+function addLoadingIndicator() {
+    return addMessage('agent', '<div class="typing-indicator"><span></span><span></span><span></span></div>');
+}
+
+function removeMessage(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+}
 
 function addMessage(type, html) {
     const div = document.createElement('div');
@@ -371,6 +569,21 @@ function parseMarkdown(text) {
     // Step B: Formating Text
     temp = temp
         .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+        // Horizontal Rules: Must match exactly on a new line, possibly with spaces around
+        .replace(/^\s*(?:---|___|\*\*\*)\s*$/gm, '<hr style="border: 0; border-top: 1px solid #e1dfdd; margin: 12px 0;">')
+        // Headers: # Header 1 -> <h1>Header 1</h1>
+        .replace(/^#\s+(.*)$/gm, '<h1 style="font-size: 16px; margin: 10px 0;">$1</h1>')
+        .replace(/^##\s+(.*)$/gm, '<h2 style="font-size: 14px; margin: 8px 0;">$1</h2>')
+        .replace(/^###\s+(.*)$/gm, '<h3 style="font-size: 13px; font-weight: bold; margin: 6px 0;">$1</h3>')
+        .replace(/^####\s+(.*)$/gm, '<h4 style="font-size: 12px; font-weight: bold; margin: 4px 0;">$1</h4>')
+        // Images: ![alt](url) -> <a href="url" target="_blank"><img src="url" ...></a>
+        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, url) => {
+            // Handle extension-bundled images
+            if (url.startsWith("chrome-extension://__MSG_@@extension_id__/")) {
+                url = chrome.runtime.getURL(url.replace("chrome-extension://__MSG_@@extension_id__/", ""));
+            }
+            return `<a href="${url}" target="_blank" title="Click to view larger image"><img src="${url}" alt="${alt}" style="max-width: 100%; height: auto; border: 1px solid #e1dfdd; border-radius: 4px; margin: 8px 0; display: block; cursor: zoom-in;"></a>`;
+        })
         // Basic Markdown Table Parser
         // Looks for block of text starting with | (allowing whitespace/indentation)
         .replace(/((?:^\s*\|.*\|\s*(?:\r?\n|$))+)/gm, (match) => {
