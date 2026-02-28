@@ -239,30 +239,8 @@ document.addEventListener('click', async (e) => {
         const toolAction = actionBtn.getAttribute('data-action') ? actionBtn.getAttribute('data-action').trim() : "";
         console.log("[M365 Agent] Action clicked:", toolAction);
 
-        if (toolAction === 'open-powershell') {
-            try {
-                actionBtn.textContent = "🚀 Launching...";
-                actionBtn.disabled = true;
-                const res = await fetch(`${API_URL}/tools/open-powershell`, { 
-                    method: 'POST',
-                    headers: getHeaders() 
-                });
-                const json = await res.json();
-                if (json.status === 'success') {
-                     actionBtn.textContent = "✅ Opened";
-                } else {
-                     actionBtn.textContent = "❌ Failed";
-                     addMessage('system', 'Error launching tool: ' + json.message);
-                }
-                setTimeout(() => {
-                     actionBtn.textContent = "🚀 Open PowerShell";
-                     actionBtn.disabled = false;
-                }, 3000);
-            } catch(err) {
-                console.error(err);
-                actionBtn.textContent = "❌ Network Error";
-            }
-        }
+
+
         
         // New Action: Confirm GCA Install (Sends text to agent)
         if (toolAction === 'confirm-gca-install') {

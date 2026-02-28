@@ -896,7 +896,7 @@ The user has clicked Authorize and presumably succeeded.
 2. **Steps**:
    1. Download the agent: [Download Graph Connector Agent](https://aka.ms/gca).
    <br>
-   2. Open PowerShell: [Open PowerShell](action:open-powershell).
+   2. Open PowerShell on your computer.
    <br>
    3. Run the following commands to set execution policies:
    ```powershell
@@ -997,7 +997,7 @@ You must look for:
         **If the list is truly empty**, please install the agent:
         
         1. Download the agent: [Download Graph Connector Agent](https://aka.ms/gca).
-        2. Open PowerShell: [Open PowerShell](action:open-powershell).
+        2. Open PowerShell on your computer.
         3. Run the following commands to set execution policies:
         ```powershell
         Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -1075,20 +1075,6 @@ async def get_me(x_session_id: Optional[str] = Header(None)):
     except Exception as e:
         # In case of token expiry or other graph errors
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/tools/open-powershell")
-async def open_powershell():
-    """
-    Opens a standalone PowerShell window on the host machine.
-    """
-    try:
-        import subprocess
-        # 'start' is a Windows shell command to open a new window
-        subprocess.Popen(["start", "powershell"], shell=True)
-        return {"status": "success", "message": "PowerShell launched"}
-    except Exception as e:
-        logger.error(f"Failed to launch PowerShell: {e}")
-        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
