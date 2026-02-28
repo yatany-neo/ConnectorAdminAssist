@@ -133,7 +133,7 @@ function startAuthPolling() {
 
 async function fetchUserInfo() {
     try {
-        const res = await fetch(`${API_URL}/me`);
+        const res = await fetch(`${API_URL}/me`, { headers: getHeaders() });
         if (res.ok) {
             const user = await res.json();
             completeLogin(user.displayName);
@@ -239,7 +239,10 @@ document.addEventListener('click', async (e) => {
             try {
                 actionBtn.textContent = "🚀 Launching...";
                 actionBtn.disabled = true;
-                const res = await fetch(`${API_URL}/tools/open-powershell`, { method: 'POST' });
+                const res = await fetch(`${API_URL}/tools/open-powershell`, { 
+                    method: 'POST',
+                    headers: getHeaders() 
+                });
                 const json = await res.json();
                 if (json.status === 'success') {
                      actionBtn.textContent = "✅ Opened";
@@ -525,7 +528,7 @@ async function askAgent(userMessage, contextUrl, intentObj = null) {
 
         // Show Loading Indicator
         const loadingId = addLoadingIndicator();
-
+getHeaders(), // Use getHeaders to include Session ID
         const response = await fetch(`${API_URL}/agent/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
