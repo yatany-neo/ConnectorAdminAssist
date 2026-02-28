@@ -59,9 +59,11 @@ async function checkBackend() {
     } catch (e) {
         ui.backendDot.className = 'status-indicator status-red';
         ui.btnLogin.disabled = true;
-        if (!isAuthenticated)
-            ui.loginStatus.textContent = "Connecting to Backend...";
-        // console.error("Backend unavailable", e);
+        if (!isAuthenticated) {
+            // Show detailed error for debugging
+            ui.loginStatus.innerHTML = `⚠️ Connection Failed.<br><small>${e.message}</small>`;
+        }
+        console.error("Backend unavailable", e);
     }
 }
 
