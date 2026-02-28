@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "M365 Admin Companion Agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Your secure AI assistant for creating Graph Connectors.",
   "permissions": [
     "sidePanel",
@@ -16,7 +16,6 @@
     }
   ],
   "host_permissions": [
-    "http://localhost:8000/*",
     "https://*.azurewebsites.net/*",
     "*://*.microsoft.com/*",
     "*://*.office.com/*",
