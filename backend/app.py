@@ -203,28 +203,18 @@ async def login(x_session_id: Optional[str] = Header(None)):
 @app.get("/auth/code")
 def get_auth_code(x_session_id: Optional[str] = Header(None)):
     """
-    Returns the current device code, x_session_id: Optional[str] = Header(None)):
+    Returns the current device code info for the frontend to display.
     """
-    Intelligent Chat using Azure OpenAI GPT-4o.
-    """
-    # If AI is not configured, fallback to rule-based or error
-    if not global_sions[x_session_id]
+    if not x_session_id or x_session_id not in sessions:
+        return {"status": "waiting", "message": "Session not found."}
+        
+    session = sessions[x_session_id]
     
     if session.is_authenticated:
         return {"status": "authenticated"}
     
     if session.auth_code_info:
         return {"status": "present", **session.auth_code_info}
-            
-    return {"status": "waiting", "message": "Waiting for device code generation..."}
-
-    Returns the current device code info for the frontend to display.
-    """
-    if state.is_authenticated:
-        return {"status": "authenticated"}
-    
-    if state.auth_code_info:
-        return {"status": "present", **state.auth_code_info}
             
     return {"status": "waiting", "message": "Waiting for device code generation..."}
 
@@ -237,12 +227,12 @@ class ChatRequest(BaseModel):
     dom_snippet: str = "" # New field for page content
 
 @app.post("/agent/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, x_session_id: Optional[str] = Header(None)):
     """
     Intelligent Chat using Azure OpenAI GPT-4o.
     """
     # If AI is not configured, fallback to rule-based or error
-    if not state.ai_client:
+    if not global_ai_client:
         return {
             "response": "⚠️ **Azure OpenAI is not configured.** Please set up your `.env` file with Endpoint and Key."
         }
