@@ -3,7 +3,6 @@ uvicorn
 python-dotenv
 azure-identity
 msgraph-sdk
-agent-framework-azure-ai
 pydantic
 openai
 gunicorn
