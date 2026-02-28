@@ -146,7 +146,9 @@ async function fetchUserInfo() {
 }
 
 function completeLogin(userName) {
+    if (isAuthenticated) return; // Prevent multiple welcomes
     isAuthenticated = true;
+    
     ui.overlay.classList.add('hidden');
     ui.connectionDot.className = 'status-indicator status-green';
     ui.connectionText.textContent = "Securely Connected";
