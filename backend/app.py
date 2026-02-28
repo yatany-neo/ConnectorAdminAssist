@@ -68,6 +68,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="M365 Admin Companion Agent Backend", lifespan=lifespan)
 
 
+# CORS for local browser extension
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # Wrapper to make DeviceCodeCredential non-blocking
 class AsyncDeviceCodeCredential:
