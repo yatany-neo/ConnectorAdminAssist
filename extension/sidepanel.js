@@ -530,10 +530,10 @@ async function askAgent(userMessage, contextUrl, intentObj = null) {
 
         // Show Loading Indicator
         const loadingId = addLoadingIndicator();
-getHeaders(), // Use getHeaders to include Session ID
+
         const response = await fetch(`${API_URL}/agent/chat`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getHeaders(), 
             body: JSON.stringify(payload)
         });
         
