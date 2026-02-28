@@ -1041,7 +1041,7 @@ The user currently has their cursor inside a specific input field.
 """
 
     try:
-        completion = await state.ai_client.chat.completions.create(
+        completion = await global_ai_client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o"),
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -1059,15 +1059,18 @@ The user currently has their cursor inside a specific input field.
         return {"response": f"🤖 **AI Error:** I encountered an issue connecting to my brain.\n\n`{str(e)}`"}
 
 @app.get("/me")
-async def get_me():
+async def get_me(x_session_id: Optional[str] = Header(None)):
+    if not x_session_id or x_session_id not in sessions:
+        raise HTTPException(status_code=401, detail="Session not found.")
+        
+    session = sessions[x_session_id]
+
     # Strict check: Do not attempt to use the client unless authentication is fully completed.
-    # This leads to "screen flashing" in the terminal if the frontend polls this endpoint while 
-    # DeviceCodeCredential is still waiting for user input.
-    if not state.is_authenticated or not state.client:
+    if not session.is_authenticated or not session.client:
         raise HTTPException(status_code=401, detail="Not authenticated yet.")
     
     try:
-        user = await state.client.me.get()
+        user = await session.client.me.get()
         return {"displayName": user.display_name, "mail": user.mail, "id": user.id}
     except Exception as e:
         # In case of token expiry or other graph errors
