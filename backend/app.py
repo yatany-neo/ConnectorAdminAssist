@@ -2,11 +2,14 @@ import asyncio
 import logging
 import os
 import datetime
+import uuid
+from typing import Dict, Optional
 from contextlib import asynccontextmanager
+from functools import partial
 from dotenv import load_dotenv
 from openai import AsyncAzureOpenAI
 from pydantic import BaseModel
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from azure.identity import DeviceCodeCredential
@@ -20,26 +23,32 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("m365-agent-backend")
 
-class AgentState:
+class SessionState:
     def __init__(self):
         self.client = None
         self.credential = None
         self.is_authenticated = False
         self.auth_code_info = None
         self.auth_task = None
-        self.ai_client = None # Azure OpenAI Client
+        self.ai_client = None # Azure OpenAI Client - Shared or per session? simpler per session if keys differ, but here env is shared.
+        # actually ai_client is from env, so it can be shared or just re-inited. 
+        # For efficiency, let's keep ai_client global or just init it once.
 
-state = AgentState()
+# Global Sessions Store
+sessions: Dict[str, SessionState] = {}
+global_ai_client = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Backend Service Starting...")
+    global global_ai_client
     
     # Initialize Azure OpenAI Client
     try:
         if os.getenv("AZURE_OPENAI_API_KEY"):
-            state.ai_client = AsyncAzureOpenAI(
+            global_ai_client = AsyncAzureOpenAI(
                 azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
                 api_key=os.getenv("AZURE_OPENAI_API_KEY"),
                 api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
@@ -51,10 +60,13 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to init OpenAI: {e}")
         
     yield
-    # Shutdown logic if needed
+    # Shutdown logic
     logger.info("Backend Service Shutting Down...")
+    # Clean up sessions?
+    sessions.clear()
 
 app = FastAPI(title="M365 Admin Companion Agent Backend", lifespan=lifespan)
+
 
 
 # Wrapper to make DeviceCodeCredential non-blocking
@@ -80,97 +92,107 @@ class AsyncDeviceCodeCredential:
         pass
 
 # CORS for local browser extension
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Global state
-class AgentState:
-    def __init__(self):
-        self.client = None
-        self.credential = None
-        self.is_authenticated = False
-        self.auth_code_info = None  # To store the device code info
-        self.auth_task = None       # To store the background task
-
-state = AgentState()
+# class AgentState removed in favor of SessionState and sessions dict
 
 @app.on_event("startup")
 async def startup_event():
     logger.info("Backend Service Started. (Legacy Handler)")
 
-def device_code_callback(verification_uri, user_code, expires_on):
+def device_code_callback(session_id, verification_uri, user_code, expires_on):
     """
-    Callback to capture the device code and URI instead of just printing to stdout.
+    Callback to capture the device code and URI for a specific session.
     """
-    logger.info(f"CAPTURED DEVICE CODE: {user_code}")
-    # Fix: Ensure no None values are passed to frontend to avoid 'undefined'
+    logger.info(f"CAPTURED DEVICE CODE for {session_id}: {user_code}")
     safe_uri = verification_uri if verification_uri else "https://microsoft.com/devicelogin"
     safe_code = user_code if user_code else "UNKNOWN_CODE"
 
-    state.auth_code_info = {
-        "verification_uri": safe_uri,
-        "user_code": safe_code,
-        "expires_on": expires_on.isoformat() if hasattr(expires_on, 'isoformat') else str(expires_on),
-        "message": "Please sign in to authenticate."
-    }
+    if session_id in sessions:
+        sessions[session_id].auth_code_info = {
+            "verification_uri": safe_uri,
+            "user_code": safe_code,
+            "expires_on": expires_on.isoformat() if hasattr(expires_on, 'isoformat') else str(expires_on),
+            "message": "Please sign in to authenticate."
+        }
 
-async def perform_login():
+async def perform_login(session_id: str):
     """
-    Background task to wait for user login.
+    Background task to wait for user login for a specific session.
     """
     try:
+        if session_id not in sessions:
+            return
+            
+        session = sessions[session_id]
+        if not session.client:
+            return
+
         # Trigger the auth flow by making a call
-        await state.client.me.get()
-        state.is_authenticated = True
-        state.auth_code_info = None # Clear code after success
-        logger.info("Authentication Background Task Completed Successfully.")
+        await session.client.me.get()
+        
+        # Update session state
+        session.is_authenticated = True
+        session.auth_code_info = None 
+        logger.info(f"Authentication Background Task Completed Successfully for {session_id}.")
     except Exception as e:
-        logger.error(f"Authentication Background Task Failed: {e}")
-        state.auth_code_info = {"error": str(e)}
+        logger.error(f"Authentication Background Task Failed for {session_id}: {e}")
+        if session_id in sessions:
+            sessions[session_id].auth_code_info = {"error": str(e)}
 
 @app.get("/")
-def read_root():
+def read_root(x_session_id: Optional[str] = Header(None)):
+    session_auth_status = "unauthenticated"
+    if x_session_id and x_session_id in sessions:
+        if sessions[x_session_id].is_authenticated:
+            session_auth_status = "authenticated"
+            
     return {
         "status": "running", 
         "service": "M365 Admin Companion Backend",
-        "auth_status": "authenticated" if state.is_authenticated else "unauthenticated"
+        "auth_status": session_auth_status,
+        "session_id": x_session_id
     }
 
 @app.post("/auth/login")
-async def login():
+async def login(x_session_id: Optional[str] = Header(None)):
     """
     Initiates the Device Code Flow in the BACKGROUND.
     """
-    global state
-    if state.is_authenticated:
+    # If no session ID provided, create one? 
+    # Logic: Client MUST provide a session ID to maintain continuity.
+    # But for first request, we can accept missing and return new?
+    # Better: Frontend generates UUID.
+    
+    if not x_session_id:
+        return {"status": "error", "message": "Missing X-Session-ID header"}
+        
+    session_id = x_session_id
+    
+    if session_id not in sessions:
+        sessions[session_id] = SessionState()
+        
+    session = sessions[session_id]
+
+    if session.is_authenticated:
          return {"status": "success", "message": "Already authenticated"}
 
     # Reset state
-    state.auth_code_info = None
+    session.auth_code_info = None
     
-    # Configure Credential with Callback (using Async Wrapper)
-    # prompt_callback allows us to capture the code
-    # We pass arguments to the underlying SyncDeviceCodeCredential
-    
-    # User 'Microsoft Graph PowerShell' Client ID as it has broad Graph permissions
-    # including ExternalConnection.ReadWrite.OwnedBy
     client_id = "14d82eec-204b-4c2f-b7e8-296a70dab67e" 
     
-    state.credential = AsyncDeviceCodeCredential(
+    # Use partial to pass session_id to callback
+    callback_with_session = partial(device_code_callback, session_id)
+    
+    session.credential = AsyncDeviceCodeCredential(
         client_id=client_id,
-        prompt_callback=device_code_callback
+        prompt_callback=callback_with_session
     )
     
     scopes = ["https://graph.microsoft.com/ExternalConnection.ReadWrite.OwnedBy", "https://graph.microsoft.com/User.Read"]
-    state.client = GraphServiceClient(credentials=state.credential, scopes=scopes)
+    session.client = GraphServiceClient(credentials=session.credential, scopes=scopes)
     
-    # Start the actual login process in the background so we don't block the HTTP response
-    state.auth_task = asyncio.create_task(perform_login())
+    # Start the actual login process in the background
+    session.auth_task = asyncio.create_task(perform_login(session_id))
 
     return {
         "status": "pending_interaction", 
@@ -179,8 +201,23 @@ async def login():
     }
 
 @app.get("/auth/code")
-def get_auth_code():
+def get_auth_code(x_session_id: Optional[str] = Header(None)):
     """
+    Returns the current device code, x_session_id: Optional[str] = Header(None)):
+    """
+    Intelligent Chat using Azure OpenAI GPT-4o.
+    """
+    # If AI is not configured, fallback to rule-based or error
+    if not global_sions[x_session_id]
+    
+    if session.is_authenticated:
+        return {"status": "authenticated"}
+    
+    if session.auth_code_info:
+        return {"status": "present", **session.auth_code_info}
+            
+    return {"status": "waiting", "message": "Waiting for device code generation..."}
+
     Returns the current device code info for the frontend to display.
     """
     if state.is_authenticated:

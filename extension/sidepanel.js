@@ -13,11 +13,34 @@ const ui = {
 };
 
 let isAuthenticated = false;
+let sessionID = null;
+
+// Initialize Session ID
+async function initSession() {
+    let stored = await chrome.storage.local.get(['session_id']);
+    if (stored.session_id) {
+        sessionID = stored.session_id;
+    } else {
+        sessionID = crypto.randomUUID();
+        await chrome.storage.local.set({ session_id: sessionID });
+    }
+    console.log("Session ID:", sessionID);
+}
+
+// Helper to add headers
+function getHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'X-Session-ID': sessionID
+    };
+}
 
 // 1. Connectivity Check Loop
 async function checkBackend() {
+    if (!sessionID) await initSession();
+
     try {
-        const response = await fetch(`${API_URL}/`);
+        const response = await fetch(`${API_URL}/`, { headers: getHeaders() });
         const data = await response.json();
         
         if (data.status === 'running') {
@@ -48,7 +71,10 @@ ui.btnLogin.addEventListener('click', async () => {
     ui.loginStatus.style.color = "#0078D4";
     
     try {
-        const res = await fetch(`${API_URL}/auth/login`, { method: 'POST' });
+        const res = await fetch(`${API_URL}/auth/login`, { 
+            method: 'POST',
+            headers: getHeaders()
+        });
         const data = await res.json();
         
         if (data.status === 'pending_interaction') {
@@ -71,7 +97,7 @@ function startAuthCodePolling() {
     authPollInterval = setInterval(async () => {
         try {
             // 1. Check for the Code
-            const res = await fetch(`${API_URL}/auth/code`);
+            const res = await fetch(`${API_URL}/auth/code`, { headers: getHeaders() });
             const data = await res.json();
 
             if (data.status === 'present') {
