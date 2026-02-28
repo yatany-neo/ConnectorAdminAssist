@@ -190,7 +190,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     window.lastAskedTime = Date.now();
 
                     // Only ask if user dwells on a field for >0.8 seconds
-                    askAgent("Field Guidance", "field-focus", intent); 
+                    askAgent("Field Guidance", currentContextUrl, intent); 
                 }, 800);
                 return;
             }
